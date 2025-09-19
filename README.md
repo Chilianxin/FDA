@@ -1,15 +1,38 @@
-## Pseudo-Industry generation via graph communities
+## Project overview
 
-Generate weekly pseudo-industry mapping from HS300-like CSV input.
+This repository implements a research framework for large-capacity, risk-averse, impact-aware deep RL for equities. It includes:
+- Pseudo-industry generation via graph communities (industry mapping substitute)
+- Prediction backbone (TCN-MoE + Relational GAT, cross-view fusion) [skeleton]
+- Market regime and execution/impact modules [skeleton]
+- Constrained RL (PPO-Lagrangian) [minimal example]
 
-Example:
-
+## Install
 ```bash
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-bash scripts/generate_pseudo_industry.sh data/hs300.csv outputs/pseudo_industry
 ```
 
-This will produce per-week CSVs and `pseudo_industry_latest.parquet/csv` in the output directory.
+## Pseudo-industry generation (graph communities)
+```bash
+bash scripts/generate_pseudo_industry.sh /absolute/path/to/hs300.csv /absolute/path/to/outputs/pseudo_industry
+```
+Outputs: weekly CSVs `pseudo_industry_YYYY-Www.csv` and latest CSV/Parquet in the output directory.
+
+## Training stages (skeleton commands)
+- Stage A (DL pretrain):
+```bash
+bash scripts/train_stage_a.sh --epochs 1
+```
+- Stage B (portfolio+execution pretrain):
+```bash
+bash scripts/train_stage_b.sh --epochs 1
+```
+- Stage C (constrained RL fine-tune, minimal env):
+```bash
+bash scripts/train_stage_c.sh --T 100 --N 50
+```
+
+See `configs/*.yaml` for configuration placeholders. Full training wiring of the predictor/regime/execution with the RL env will be added incrementally.
 
 # FAD: Financial Alpha with Differentiable execution
 

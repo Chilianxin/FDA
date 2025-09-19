@@ -1,0 +1,10 @@
+model:
+  seq_in_feat: 8
+  cond_dim: 8
+  node_feat_dim: 8
+  hidden: 128
+  num_styles: 8
+train:
+  epochs: 5
+  batch_size: 64
+  lr: 1e-3
