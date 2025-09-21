@@ -1,0 +1,11 @@
+env:
+  adv_cap: 0.1
+  cvar_alpha: 0.1
+algo:
+  lr: 3e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_eps: 0.2
+train:
+  T: 100
+  N: 50

@@ -1,0 +1,8 @@
+data:
+  input_csv: data/hs300.csv
+  required_cols: [ts_code, trade_date, open, high, low, close, pct_chg, vol, amount, turnover_rate, volume_ratio, pe, pb, circ_mv]
+splits:
+  train_months: 12
+  val_months: 3
+  test_months: 3
+  embargo_days: 20

@@ -1,0 +1,21 @@
+pandas>=2.1
+numpy>=1.25
+scipy>=1.11
+scikit-learn>=1.3
+pyyaml>=6.0
+python-igraph>=0.11
+leidenalg>=0.10
+networkx>=3.1
+numba>=0.58
+loguru>=0.7
+rich>=13.5
+python-louvain>=0.16
+pyarrow>=14.0
+torch>=2.1
+hydra-core>=1.3
+omegaconf>=2.3
+tqdm>=4.66
+# optional for RGAT acceleration (install per platform instructions)
+# torch-geometric
+# torch-scatter
+# torch-sparse

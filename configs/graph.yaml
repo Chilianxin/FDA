@@ -1,0 +1,7 @@
+graph:
+  window: 120
+  topk: 15
+  weights: [0.25, 0.25, 0.15, 0.25, 0.10]
+  resolution: 1.0
+  min_cluster_size: 5
+  smooth_weeks: 4
