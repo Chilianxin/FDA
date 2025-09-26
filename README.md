@@ -104,9 +104,12 @@ python -m fda.training.train_dl \
 ## 模型（预测 × 市场 × 执行 × RL）
 
 ### 预测模块（`fda/models`）
-- 股票内：`tcn_moe.TCNMoE`
-  - 多尺度空洞卷积（短/中/长专家），Regime-aware 条件门控
-  - 输入：每股序列特征 `[B, C, T]` 与条件特征 `[B, D]`
+- 股票内：`sat_fan.SATFAN`（自适应时频注意力网络）
+  - 特征增强：时域 z-score + FFT 频谱 Top-K 幅值，时频拼接
+  - 多尺度：三路 TCN 专家（短/中/长感受野）
+  - 专家内注意力：对时间维进行注意力汇聚，得到每个专家的上下文向量
+  - 专家间融合：基于自注意力（可用 `MultiheadAttention`）融合三专家意见
+  - 输入：每股序列特征 `[B, C, T]`（可忽略 cond）
   - 输出：每股隐表示 `h_intra ∈ R^H`
 - 股票间：`rgat.StackedRGAT`
   - 多头注意力（纯 PyTorch 版 RGAT），输入节点特征与稀疏邻接（索引+权重）
