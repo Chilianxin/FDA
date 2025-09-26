@@ -69,6 +69,29 @@ python -m fda.tools.gen_pseudo_industry \
 - 冲击共现（近 60 日内 `volume_ratio` 高分位且负收益的同日共现）
 - 融合权重默认 `[0.25, 0.25, 0.15, 0.25, 0.10]`，Top-K=15 稀疏化。
 
+### 动态格兰杰因果图（NGC）
+在静态相关图的基础上，我们引入了动态、神经网络格兰杰因果（Neural GC, NGC）的股票间关系模块，用于捕捉非线性、时变的因果关系，并与 GAT 层兼容。
+
+实现位置：
+- 构建器：`fda/graphs/ngc_builder.py`
+  - `NGC_Builder`：针对每个目标股票，使用 MLP 从全体股票的滞后收益预测目标的当期收益；首层权重按“组套索（Group Lasso）”进行组稀疏（以“来源股票”为组，跨多个滞后期），得到因果强度 `A[i,j]`（i→j）。
+  - `moralize_graph(A)`：将有向因果图道德化为无向图（父节点两两相连，并去除方向）。
+  - `to_edge_index(S)`：将无向邻接矩阵 `S` 转为 `edge_index([2,E])` 与 `edge_weight([E])`，可直接供 GAT 使用。
+  - `rolling_dynamic_ngc(...)`：滚动窗口构图（`window_size`, `step_size`），按窗口结束日期返回图字典：`{'A','M','edge_index','edge_weight','adj_indices','adj_weights','nodes'}`。
+
+依赖与说明：
+- 必要：`torch, numpy, pandas, scikit-learn`（已在 `requirements.txt`）。
+- 可选：`torch-geometric`（若切换为 PyG GAT）。当前 `fda/models/rgat.py` 为纯 PyTorch 版，已可直接使用 `adj_indices/adj_weights`。
+- NGC 配置：见 `NGCConfig`（滞后阶数、组套索系数、学习率、训练轮数等）。
+
+快速示例（演示训练骨架接入动态图）：
+```bash
+python -m fda.training.train_dl \
+  --data_csv /abs/path/your_panel.csv \
+  --window_size 252 --step_size 21 --epochs 1 --max_nodes 64
+```
+输出会按窗口结束日期打印当期图规模与预测输出统计。实际训练时，请将 `x_seq/x_node/cond` 接入真实特征与损失。
+
 社区检测（`fda/graphs/communities.py`）：
 - Leiden（优先）或 Louvain（回退）
 - 周度重算 → 标签对齐（重叠最大）→ 4 周多数投票平滑 → 小簇合并
@@ -148,6 +171,7 @@ bash scripts/train_stage_c.sh --T 100 --N 50
 ## 核心 API 速览
 - `fda.data.dataset.load_panel(path)` → `DataFrame`（含派生特征）
 - `fda.graphs.build_graph.build_fused_graph(df, end_date, window, top_k)` → `(S, nodes)`
+- `fda.graphs.ngc_builder.NGC_Builder`/`rolling_dynamic_ngc`：构建动态神经格兰杰因果图（含道德化与 GAT 输入）
 - `fda.graphs.communities.detect_communities(S)` → `labels`
 - `fda.models.predictor.Predictor`：`forward(x_seq, x_node, cond, adj_indices, adj_weights)` → `dict`
 - `fda.execution.impact.impact_cost(q, σ, ADV, κ, α, β)` → `cost`
