@@ -145,3 +145,53 @@ class MILAN(nn.Module):
         costs = self.head(h)
         return costs
 
+
+class MacroProjector(nn.Module):
+    def __init__(self, in_dim: int, out_dim: int = 16):
+        super().__init__()
+        self.net = nn.Sequential(nn.Linear(in_dim, max(out_dim, 8)), nn.GELU(), nn.Linear(max(out_dim, 8), out_dim))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
+
+class MarketModel(nn.Module):
+    """
+    Wrapper to produce RL-ready market state with late fusion fields.
+
+    forward(...) returns dict with keys:
+      - z_macro: [B, Dz]
+      - regime_probs: [B, K] or None if not provided
+      - risk_metrics: dict with aggregates (e.g., rv_mean, zvol_mean) as [B]
+      - impact_costs: [B, N]
+    """
+
+    def __init__(self, stock_dim: int, macro_dim: int, probe_dim: int, intent_dim: int, model_dim: int = 128, macro_z_dim: int = 16, layers: int = 2, heads: int = 4, dropout: float = 0.1):
+        super().__init__()
+        self.milan = MILAN(stock_dim, macro_dim, probe_dim, intent_dim, model_dim, layers, heads, dropout)
+        self.macro_proj = MacroProjector(macro_dim, out_dim=macro_z_dim)
+
+    def forward(
+        self,
+        stock_features: torch.Tensor,
+        macro_state_vector: torch.Tensor,
+        impact_potential_vector: torch.Tensor,
+        trading_intention_vector: torch.Tensor,
+        regime_probs: torch.Tensor | None = None,
+    ) -> dict:
+        z_macro = self.macro_proj(macro_state_vector)
+        impact_costs = self.milan(stock_features, macro_state_vector, impact_potential_vector, trading_intention_vector)
+        # simple aggregates as risk metrics
+        rv_mean = impact_potential_vector[..., 1].mean(dim=1)  # [B]
+        zvol_mean = impact_potential_vector[..., 0].mean(dim=1)  # [B]
+        out = {
+            'z_macro': z_macro,
+            'regime_probs': regime_probs,
+            'risk_metrics': {
+                'rv_mean': rv_mean,
+                'zvol_mean': zvol_mean,
+            },
+            'impact_costs': impact_costs,
+        }
+        return out
+

@@ -32,5 +32,13 @@ class Predictor(nn.Module):
         mu = self.mu(h).squeeze(-1)
         qs = self.q_heads(h)                           # [N, 3]
         u = torch.softplus(self.uncertainty(h)).squeeze(-1)
-        return { 'mu': mu, 'quantiles': qs, 'uncertainty': u, 'styles': E, 'h_inter': h_inter, 'h_intra': h_intra, 'h': h }
+        rl_state = {
+            'alpha_mu': mu,
+            'alpha_q': qs,
+            'alpha_uncertainty': u,
+            'styles': E,
+            'h_intra': h_intra,
+            'h_inter': h_inter,
+        }
+        return { 'mu': mu, 'quantiles': qs, 'uncertainty': u, 'styles': E, 'h_inter': h_inter, 'h_intra': h_intra, 'h': h, 'rl_state': rl_state }
 

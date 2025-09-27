@@ -119,7 +119,8 @@ python -m fda.training.train_dl \
 - 风格矩阵（来自 GAT 表示）：`style_head.StyleHead`
   - `E = W_style · h_inter`，加正交/稀疏正则；包含锚定列（动量/价值/波动/流动性）+ 学习风格
 - 预测器封装：`predictor.Predictor`
-  - 前向返回：`{mu, quantiles(q10/q50/q90), uncertainty, styles(E), h_inter, h_intra, h}`
+  - 前向返回：`{mu, quantiles(q10/q50/q90), uncertainty, styles(E), h_inter, h_intra, h, rl_state}`
+  - `rl_state`（RL 晚融合字段）：`alpha_mu, alpha_q, alpha_uncertainty, styles, h_intra, h_inter`
 
 ### 市场模块（`fda/market`）
 - `regime.RegimeNet`：从指数/广度/成交/估值/两融等市场特征输出 Regime 概率
@@ -128,6 +129,7 @@ python -m fda.training.train_dl \
   - 微观冲击前瞻（Transformer）：`MILAN` 接收 `stock_features, macro_state_vector, impact_potential_vector, trading_intention_vector`，输出每标的的预期冲击成本向量
   - 流动性探测器：`micro_liquidity_probe` 计算成交活跃异常 Z-score 与短期实现波动率，组成冲击潜力向量
   - 应用：作为 RL 环境的成本感知信号，或与执行 `impact.py/schedule.py` 联动进行成本建模
+  - 统一市场接口 `MarketModel`：返回 `{'z_macro','regime_probs','risk_metrics','impact_costs'}`，便于 RL 晚融合接入
 
 ### 执行与成本（`fda/execution`）
 - 冲击参数网络：`impact.ImpactNet` 输出 `κ, α, β`（范围约束 `α∈[0.6,1.0]`）
