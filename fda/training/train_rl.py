@@ -36,6 +36,7 @@ def main():
     explainer = XRLExplainer(agent.q, bg)
 
     obs = env.reset()
+    feature_names = [f'w{i}' for i in range(state_dim)]
     for t in range(args.T - 1):
         s = obs['position'].astype(np.float32)
         a = agent.act(s, eps=args.eps)
@@ -48,9 +49,13 @@ def main():
         loss = agent.update(batch_size=args.batch)
 
         # XRL explanation (demo): explain current decision
-        shap_vals = explainer.explain_decision(s)
-        # select action's shap values for potential logging/printing
+        shap_vals = explainer.explain_decision(s)  # [A, F]
         shap_a = shap_vals[a]
+        # format explanation (top-3)
+        # here we sort and print; in production, write to structured logs
+        idx = np.argsort(np.abs(shap_a))[::-1][:3]
+        drivers = [(feature_names[i], float(shap_a[i])) for i in idx]
+        print(f"t={t} a={a} pnl={pnl:.6f} drivers={drivers}")
 
         obs = obs_next
         if done:

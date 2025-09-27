@@ -145,6 +145,7 @@ python -m fda.training.train_dl \
   - 接收扁平状态向量，输出离散动作 Q 值；配合 XRL 解释
 - 可解释性强化学习（XRL）：`rl/xrl/explainer.py`
   - `XRLExplainer` 基于 `shap` 对 Q 网络进行事后解释，输出每个动作的特征归因；提供格式化函数便于生成“决策备忘录”
+  - 训练时解释日志：`fda/training/train_rl.py` 在每步打印所选动作的 Top-3 驱动特征与贡献值（示例），生产中可写入结构化日志
 
 > 说明：当前 Stage C 环境用于打通训练闭环的最小可运行版本；完整受约束 RL（簇/风格/CVaR/回撤/ADV/换手的拉格朗日约束、分位数 Critic）将随着预测/执行模块的真实接线逐步完善。
 
