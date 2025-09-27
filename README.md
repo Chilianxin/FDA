@@ -17,7 +17,7 @@ fda/
   models/                  # 预测模块: TCN-MoE, RGAT, 融合, 风格头, 预测器
   market/                  # 市场 Regime 网络（骨架）
   execution/               # 价格冲击与多日执行（骨架）
-  rl/                      # 强化学习环境与算法（PPO-Lagrangian 最小实现）
+  rl/                      # 强化学习环境与算法（DQN + XRL）
   training/                # 三阶段训练入口（骨架）
   tools/                   # 伪行业映射 CLI 等工具
 configs/                   # 配置样例（当前作为参考，后续接入 Hydra）
@@ -141,7 +141,7 @@ python -m fda.training.train_dl \
   - 输入：价格/收益/ADV、伪行业簇、冲击参数；约束：日成交占比 cap 等
   - 动作：目标权重/离散动作映射
   - 奖励：成本后 PnL（含临时+永久冲击）
-- 算法（默认）：`algo.dqn.DQNAgent/QNetwork` + XRL
+- 算法（唯一默认）：`algo.dqn.DQNAgent/QNetwork` + XRL
   - 接收扁平状态向量，输出离散动作 Q 值；配合 XRL 解释
 - 可解释性强化学习（XRL）：`rl/xrl/explainer.py`
   - `XRLExplainer` 基于 `shap` 对 Q 网络进行事后解释，输出每个动作的特征归因；提供格式化函数便于生成“决策备忘录”
@@ -190,7 +190,7 @@ bash scripts/train_stage_c.sh --T 100 --N 50
 - `fda.execution.impact.impact_cost(q, σ, ADV, κ, α, β)` → `cost`
 - `fda.execution.schedule.soft_schedule(q, H)` → `[H, N]`
 - `fda.rl.envs.market_env.MarketEnv`：`reset()/step(w)`
-- `fda.rl.algo.ppo_lagrangian.PPOLagrangian`：`actor/critic/step`
+ 
 
 ## 扩展与定制
 - 启用 PyTorch Geometric：安装 PyG 后，可将 `rgat.StackedRGAT` 替换为基于 PyG 的 RGAT 层以提速
