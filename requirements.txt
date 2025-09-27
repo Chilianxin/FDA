@@ -20,3 +20,4 @@ tqdm>=4.66
 # torch-scatter
 # torch-sparse
 hmmlearn>=0.3
+shap>=0.41
