@@ -19,3 +19,4 @@ tqdm>=4.66
 # torch-geometric
 # torch-scatter
 # torch-sparse
+hmmlearn>=0.3

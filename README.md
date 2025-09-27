@@ -123,6 +123,11 @@ python -m fda.training.train_dl \
 
 ### 市场模块（`fda/market`）
 - `regime.RegimeNet`：从指数/广度/成交/估值/两融等市场特征输出 Regime 概率
+- 动态市场感知（MILAN）：`market.milan`
+  - 宏观情境感知（HMM）：`MarketRegimeDetector` 识别牛/熊/震荡等隐含状态并输出状态概率
+  - 微观冲击前瞻（Transformer）：`MILAN` 接收 `stock_features, macro_state_vector, impact_potential_vector, trading_intention_vector`，输出每标的的预期冲击成本向量
+  - 流动性探测器：`micro_liquidity_probe` 计算成交活跃异常 Z-score 与短期实现波动率，组成冲击潜力向量
+  - 应用：作为 RL 环境的成本感知信号，或与执行 `impact.py/schedule.py` 联动进行成本建模
 
 ### 执行与成本（`fda/execution`）
 - 冲击参数网络：`impact.ImpactNet` 输出 `κ, α, β`（范围约束 `α∈[0.6,1.0]`）
