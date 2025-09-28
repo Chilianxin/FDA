@@ -9,6 +9,7 @@ from fda.rl.algo.dqn import DQNAgent
 from fda.rl.xrl.explainer import XRLExplainer
 from fda.models.predictor import Predictor
 from fda.market.milan import MarketModel
+from fda.graphs.ngc_builder import rolling_dynamic_ngc, NGCConfig
 
 
 def _build_adj_indices_weights(N: int):
@@ -70,8 +71,24 @@ def main():
     intent_dim = 1
     market_model = MarketModel(stock_dim=stock_dim, macro_dim=macro_dim, probe_dim=probe_dim, intent_dim=intent_dim)
 
-    # adjacency for RGAT
-    adj_indices, adj_weights = _build_adj_indices_weights(args.N)
+    # build rolling NGC graphs from synthetic returns as panel df
+    ts_codes = [f"S{i:03d}" for i in range(args.N)]
+    dates = [f"D{t:03d}" for t in range(args.T)]
+    # construct minimal df with ['trade_date','ts_code','r']
+    rows = []
+    for ti, d in enumerate(dates):
+        for ni, code in enumerate(ts_codes):
+            rows.append((d, code, float(returns[ti, ni])))
+    import pandas as pd
+    df_ret = pd.DataFrame(rows, columns=['trade_date','ts_code','r'])
+    ngc_cfg = NGCConfig(max_lag=5, epochs=20, batch_size=128)
+    graph_dict = rolling_dynamic_ngc(df_ret, window_size=seq_T, step_size=1, cfg=ngc_cfg, node_order=ts_codes, top_k_per_col=15)
+    graph_dates = sorted(graph_dict.keys())
+    def _adj_for_t(t_idx: int):
+        key_idx = max(0, min(len(graph_dates) - 1, t_idx))
+        key = graph_dates[key_idx]
+        g = graph_dict[key]
+        return g['adj_indices'], g['adj_weights']
 
     # build initial state (t=0) to size agent
     obs = env.reset()
@@ -84,7 +101,8 @@ def main():
     x_seq = torch.from_numpy(r_hist.T[:, None, :].astype(np.float32))  # [N, 1, T]
     x_node = torch.zeros(args.N, node_feat_dim, dtype=torch.float32)   # placeholder
     cond = torch.zeros(args.N, cond_dim, dtype=torch.float32)
-    pred_out = predictor(x_seq, x_node, cond, adj_indices, adj_weights)
+    cur_adj_idx, cur_adj_w = _adj_for_t(t)
+    pred_out = predictor(x_seq, x_node, cond, cur_adj_idx, cur_adj_w)
     rl_state = pred_out['rl_state']
     # market inputs at t
     stock_features = np.stack([
@@ -138,6 +156,10 @@ def main():
     state_dim = int(s0.shape[0])
     agent = DQNAgent(state_dim=state_dim, action_dim=action_dim, lr=1e-3)
 
+    # Optimizers for end-to-end updates of Predictor and MarketModel
+    opt_pred = torch.optim.Adam(predictor.parameters(), lr=1e-3)
+    opt_mkt = torch.optim.Adam(market_model.parameters(), lr=1e-3)
+
     # SHAP background: sample unit vectors of state space (small demo)
     bg = np.eye(state_dim, dtype=np.float32)[: min(50, state_dim)]
     explainer = XRLExplainer(agent.q, bg)
@@ -153,7 +175,8 @@ def main():
         x_seq = torch.from_numpy(r_hist.T[:, None, :].astype(np.float32))
         x_node = torch.zeros(args.N, node_feat_dim, dtype=torch.float32)
         cond = torch.zeros(args.N, cond_dim, dtype=torch.float32)
-        pred_out = predictor(x_seq, x_node, cond, adj_indices, adj_weights)
+        cur_adj_idx, cur_adj_w = _adj_for_t(t)
+        pred_out = predictor(x_seq, x_node, cond, cur_adj_idx, cur_adj_w)
         rl_state = pred_out['rl_state']
 
         # market inputs at t
@@ -218,6 +241,33 @@ def main():
 
         agent.buffer.push(s_vec, a, r, sp_vec, float(done))
         loss = agent.update(batch_size=args.batch)
+
+        # End-to-end auxiliary updates to drive DL modules
+        # Predictor supervision: mu vs realized next return (use current returns[t])
+        target_r = torch.from_numpy(returns[t].astype(np.float32))
+        mu_pred = pred_out['mu']  # [N]
+        loss_pred = torch.nn.functional.mse_loss(mu_pred, target_r)
+
+        # MarketModel supervision: r_total_pred vs realized, impact_costs vs proxy env cost per-asset
+        # Recompute sigma vector like env
+        start_20 = max(0, t - 20)
+        sigma_vec = np.sqrt(np.maximum(1e-8, (returns[start_20: t + 1] ** 2).mean(axis=0)))
+        dq_vec = dq  # from above, numpy [N]
+        adv_vec = np.maximum(adv[t], 1e-8)
+        kappa = impact_params['kappa']; alpha = impact_params['alpha']; beta = impact_params['beta']
+        temp_vec = kappa * sigma_vec * (np.abs(dq_vec) / adv_vec) ** alpha
+        perm_vec = beta * np.abs(dq_vec)
+        cost_vec = temp_vec + perm_vec  # [N]
+        impact_pred = market_out['impact_costs'].squeeze(0)
+        loss_cost = torch.nn.functional.mse_loss(impact_pred, torch.from_numpy(cost_vec.astype(np.float32)))
+        r_total_pred = market_out['r_total_pred'].squeeze(0)
+        loss_r = torch.nn.functional.mse_loss(r_total_pred, target_r)
+
+        total_mkt_loss = loss_r + 0.1 * loss_cost
+
+        # optimize
+        opt_pred.zero_grad(); loss_pred.backward(); opt_pred.step()
+        opt_mkt.zero_grad(); total_mkt_loss.backward(); opt_mkt.step()
 
         # XRL explanation (demo): explain current decision
         shap_vals = explainer.explain_decision(s_vec)  # [A, F]
