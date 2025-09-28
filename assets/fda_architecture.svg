@@ -1,80 +1,106 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="680" viewBox="0 0 1100 680">
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
   <defs>
     <style>
       .box { fill:#ffffff; stroke:#1f2937; stroke-width:2; rx:10; ry:10; }
       .title { font: 700 18px sans-serif; fill:#111827; }
       .text { font: 400 14px sans-serif; fill:#374151; }
-      .arrow { stroke:#2563eb; stroke-width:2.5; marker-end:url(#arrowHead); fill:none; }
-      .arrow2 { stroke:#10b981; stroke-width:2.5; marker-end:url(#arrowHead); fill:none; stroke-dasharray:6 6; }
-      .arrow3 { stroke:#ef4444; stroke-width:2.5; marker-end:url(#arrowHead); fill:none; stroke-dasharray:4 4; }
+      .tiny { font: 400 12px sans-serif; fill:#4b5563; }
+      .arrow { stroke:#2563eb; stroke-width:2.5; marker-end:url(#arrowHeadBlue); fill:none; }
+      .arrow2 { stroke:#10b981; stroke-width:2.5; marker-end:url(#arrowHeadGreen); fill:none; stroke-dasharray:6 6; }
+      .arrow3 { stroke:#ef4444; stroke-width:2.5; marker-end:url(#arrowHeadRed); fill:none; stroke-dasharray:4 4; }
+      .step { font:700 14px sans-serif; fill:#2563eb; }
     </style>
-    <marker id="arrowHead" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+    <marker id="arrowHeadBlue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
       <polygon points="0 0, 10 5, 0 10" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowHeadGreen" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#10b981"/>
+    </marker>
+    <marker id="arrowHeadRed" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#ef4444"/>
     </marker>
   </defs>
 
-  <!-- Data -->
-  <rect class="box" x="40" y="40" width="240" height="120"/>
-  <text class="title" x="60" y="70">源数据 Data</text>
-  <text class="text" x="60" y="100">• 行情：价/量/额/收益</text>
-  <text class="text" x="60" y="122">• 流动性/估值/广度</text>
-  <text class="text" x="60" y="144">• 资金流/意图（如有）</text>
+  <!-- 1. Data Ingestion & Preprocessing -->
+  <rect class="box" x="40" y="40" width="320" height="200"/>
+  <text class="title" x="60" y="70">1) 源数据与预处理</text>
+  <text class="text" x="60" y="100">• 原始：价/量/额/收益、估值、广度、资金流（如有）</text>
+  <text class="text" x="60" y="124">• 派生：r、hl_vol、ADV、Amihud、cross-sec z、pe/pb_z</text>
+  <text class="text" x="60" y="148">• 数据校验与对齐：`dataset.load_panel`</text>
+  <text class="tiny" x="60" y="174">输出：面板数据 df（trade_date×ts_code）</text>
 
-  <!-- Graphs (NGC) -->
-  <rect class="box" x="320" y="40" width="300" height="120"/>
-  <text class="title" x="340" y="70">动态图 NGC</text>
-  <text class="text" x="340" y="100">• Neural Granger (组套索)</text>
-  <text class="text" x="340" y="122">• Moralize → 无向图</text>
-  <text class="text" x="340" y="144">• edge_index/weight</text>
+  <!-- 2. Dynamic Graphs (NGC) -->
+  <rect class="box" x="400" y="40" width="380" height="240"/>
+  <text class="title" x="420" y="70">2) 动态因果图 NGC</text>
+  <text class="text" x="420" y="100">• NGC_Builder：
+    滞后设计矩阵 → MLP → 组套索（按来源股票分组）</text>
+  <text class="text" x="420" y="124">• 有向 A[i→j] → 道德化 → 无向 M</text>
+  <text class="text" x="420" y="148">• to_edge_index(M) → [2,E], weights[E]</text>
+  <text class="text" x="420" y="172">• rolling_dynamic_ngc：滚动窗口/步长生成图字典</text>
+  <text class="tiny" x="420" y="198">输出：{A, M, edge_index, edge_weight, adj_indices, adj_weights, nodes}</text>
 
-  <!-- Predictor -->
-  <rect class="box" x="40" y="220" width="580" height="160"/>
-  <text class="title" x="60" y="250">预测模块 Predictor</text>
-  <text class="text" x="60" y="280">• 股票内 SAT-FAN（时频增强 + 多尺度 TCN + 注意力）</text>
-  <text class="text" x="60" y="304">• 股票间 RGAT（稀疏注意力，使用 edge_index/weight）</text>
-  <text class="text" x="60" y="328">• 融合 Fusion → h</text>
-  <text class="text" x="60" y="352">• 输出：mu / quantiles / uncertainty / styles / rl_state</text>
+  <!-- 3. Predictor -->
+  <rect class="box" x="40" y="270" width="740" height="250"/>
+  <text class="title" x="60" y="300">3) 预测模块 Predictor</text>
+  <text class="text" x="60" y="328">• 股票内 SAT-FAN：</text>
+  <text class="tiny" x="85" y="348">FeatureEnhancer(时域z+FFT Top-K) → TCN(short/mid/long) → TemporalAttention×3 → ExpertFusionAttention</text>
+  <text class="text" x="60" y="372">• 股票间 RGAT：使用 adj_indices/adj_weights 进行稀疏注意力消息传递</text>
+  <text class="text" x="60" y="396">• 融合 Fusion（Cross-Gating + 拼接投影），StyleHead（风格矩阵）</text>
+  <text class="text" x="60" y="420">• 输出：mu、quantiles(q10/q50/q90)、uncertainty、styles、h_intra、h_inter、rl_state</text>
 
-  <!-- Market Model -->
-  <rect class="box" x="660" y="220" width="400" height="200"/>
-  <text class="title" x="680" y="250">市场模块 MarketModel</text>
-  <text class="text" x="680" y="280">• Regime(HMM) → 宏观 z_macro / regime_probs</text>
-  <text class="text" x="680" y="302">• Probe + MILAN → impact_costs</text>
-  <text class="text" x="680" y="324">• 回报分解：r_norm + r_impact = r_total_pred</text>
-  <text class="text" x="680" y="346">• 输入含 trading intention（由动作生成）</text>
+  <!-- 4. Market Model -->
+  <rect class="box" x="820" y="270" width="540" height="300"/>
+  <text class="title" x="840" y="300">4) 市场模块 MarketModel</text>
+  <text class="text" x="840" y="328">• 宏观：MarketRegimeDetector(HMM) → regime_probs；MacroProjector → z_macro</text>
+  <text class="text" x="840" y="352">• 微观：micro_liquidity_probe → 交易活跃异常Z + rv10</text>
+  <text class="text" x="840" y="376">• 冲击传播：ImpactPropagationTransformer（特征+宏观+潜力+意图）</text>
+  <text class="text" x="840" y="400">• 冲击头：ImpactPredictionHead → impact_costs（每标的预期成本）</text>
+  <text class="text" x="840" y="424">• 基线回报：BaselineReturnHead → r_norm；冲击回报：r_impact</text>
+  <text class="text" x="840" y="448">• 总回报：r_total_pred = r_norm + r_impact</text>
+  <text class="tiny" x="840" y="474">输出：{z_macro, regime_probs, risk_metrics, impact_costs, r_norm, r_impact, r_total_pred}</text>
 
-  <!-- RL -->
-  <rect class="box" x="60" y="430" width="500" height="200"/>
-  <text class="title" x="80" y="460">强化学习 DQN + XRL</text>
-  <text class="text" x="80" y="490">• 状态：rl_state ∥ {z_macro, risk, r_norm, r_impact, impact_costs}</text>
-  <text class="text" x="80" y="512">• 奖励：PnL − impact_costs（impact-aware）</text>
-  <text class="text" x="80" y="534">• 决策可解释：SHAP Top-K 驱动特征</text>
+  <!-- 5. RL (DQN + XRL) -->
+  <rect class="box" x="40" y="550" width="900" height="280"/>
+  <text class="title" x="60" y="580">5) 强化学习 DQN + XRL</text>
+  <text class="text" x="60" y="608">• 状态组装（晚融合）：rl_state ∥ {z_macro, risk_metrics, r_norm, r_impact, impact_costs}</text>
+  <text class="text" x="60" y="632">• Agent：DQNAgent(QNetwork)；回放与更新</text>
+  <text class="text" x="60" y="656">• 奖励：impact-aware → reward = PnL − impact_costs（含 cross-impact 可扩展）</text>
+  <text class="text" x="60" y="680">• 可解释性：XRLExplainer(SHAP) 对所选动作 Q 值做特征归因（Top-K 驱动）</text>
+  <text class="text" x="60" y="704">• 动作→交易意图：intent = sign(Δw) × |Δw|/ADV ×(可含执行视野H)</text>
 
-  <!-- Execution/Env -->
-  <rect class="box" x="600" y="470" width="300" height="120"/>
-  <text class="title" x="620" y="500">执行/环境</text>
-  <text class="text" x="620" y="530">• 交易施行/成本结算</text>
+  <!-- 6. Execution/Env -->
+  <rect class="box" x="980" y="610" width="380" height="160"/>
+  <text class="title" x="1000" y="640">6) 执行/环境</text>
+  <text class="text" x="1000" y="668">• 依据目标权重/日程执行交易；成本结算；账户更新</text>
+  <text class="tiny" x="1000" y="692">输出：PnL、成本细项、下一期仓位与状态</text>
 
-  <!-- Arrows -->
-  <!-- Data to NGC -->
-  <path class="arrow" d="M 280 100 L 320 100"/>
-  <!-- Data to Predictor -->
-  <path class="arrow" d="M 160 160 L 160 220"/>
-  <!-- NGC to Predictor -->
-  <path class="arrow" d="M 470 160 L 470 220"/>
-  <!-- Predictor to RL -->
-  <path class="arrow" d="M 330 380 L 330 430"/>
-  <!-- Market to RL -->
-  <path class="arrow" d="M 720 420 L 520 520"/>
-  <!-- RL to Market (intention) -->
-  <path class="arrow2" d="M 300 520 C 400 520, 600 380, 760 340"/>
-  <!-- RL to Execution -->
-  <path class="arrow" d="M 560 520 L 600 520"/>
-  <!-- Execution to Data (feedback loop, stylized) -->
-  <path class="arrow3" d="M 750 590 C 780 640, 200 640, 160 160"/>
+  <!-- Arrows with step labels -->
+  <path class="arrow" d="M 360 140 L 400 140"/>
+  <text class="step" x="370" y="132">→ NGC</text>
+
+  <path class="arrow" d="M 200 240 L 200 270"/>
+  <text class="step" x="150" y="260">→ Predictor</text>
+
+  <path class="arrow" d="M 590 200 L 590 270"/>
+  <text class="step" x="520" y="260">NGC→RGAT</text>
+
+  <path class="arrow" d="M 410 520 L 410 550"/>
+  <text class="step" x="360" y="540">Pred→RL</text>
+
+  <path class="arrow" d="M 960 520 L 820 620"/>
+  <text class="step" x="880" y="600">Market→RL</text>
+
+  <path class="arrow2" d="M 500 760 C 700 720, 1040 540, 1040 480"/>
+  <text class="step" x="1020" y="470" fill="#10b981">RL→意图</text>
+
+  <path class="arrow" d="M 940 700 L 980 700"/>
+  <text class="step" x="930" y="690">RL→执行</text>
+
+  <path class="arrow3" d="M 1170 770 C 1200 840, 220 840, 200 240"/>
+  <text class="step" x="210" y="830" fill="#ef4444">闭环反馈</text>
 
   <!-- Legend -->
-  <text class="text" x="860" y="640">蓝色：前向数据流  绿色：意图回流  红色：闭环反馈</text>
+  <text class="tiny" x="1020" y="860">蓝色：前向数据流  绿色：意图回流  红色：闭环反馈</text>
 </svg>
 
