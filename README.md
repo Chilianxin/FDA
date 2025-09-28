@@ -105,6 +105,10 @@ python -m fda.training.train_dl \
 
 ![FAD Architecture](assets/fda_architecture.svg)
 
+左→右流程图（简洁版）：
+
+![FAD LTR](assets/fda_architecture_ltr.svg)
+
 ### 预测模块（`fda/models`）
 - 股票内：`sat_fan.SATFAN`（自适应时频注意力网络）
   - 特征增强：时域 z-score + FFT 频谱 Top-K 幅值，时频拼接

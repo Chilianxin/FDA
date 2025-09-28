@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="520" viewBox="0 0 1600 520">
+  <defs>
+    <style>
+      .box { fill:#ffffff; stroke:#1f2937; stroke-width:2; rx:10; ry:10; }
+      .title { font: 700 18px sans-serif; fill:#111827; }
+      .text { font: 400 14px sans-serif; fill:#374151; }
+      .tiny { font: 400 12px sans-serif; fill:#4b5563; }
+      .arrow { stroke:#2563eb; stroke-width:2.5; marker-end:url(#arrowHeadBlue); fill:none; }
+      .arrow2 { stroke:#10b981; stroke-width:2.5; marker-end:url(#arrowHeadGreen); fill:none; stroke-dasharray:6 6; }
+      .arrow3 { stroke:#ef4444; stroke-width:2.5; marker-end:url(#arrowHeadRed); fill:none; stroke-dasharray:4 4; }
+      .step { font:700 13px sans-serif; fill:#2563eb; }
+    </style>
+    <marker id="arrowHeadBlue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowHeadGreen" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#10b981"/>
+    </marker>
+    <marker id="arrowHeadRed" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#ef4444"/>
+    </marker>
+  </defs>
+
+  <!-- Left-to-Right Pipeline -->
+  <!-- 1. Data & Preprocessing -->
+  <rect class="box" x="40" y="40" width="280" height="180"/>
+  <text class="title" x="60" y="70">数据与预处理</text>
+  <text class="text" x="60" y="100">• 原始：价/量/额/收益/估值/广度/资金流</text>
+  <text class="text" x="60" y="124">• 派生：r, hl_vol, ADV, Amihud, z-score, pe/pb_z</text>
+  <text class="tiny" x="60" y="150">输出：面板 df（trade_date×ts_code）</text>
+
+  <!-- 2. NGC Graphs -->
+  <rect class="box" x="360" y="40" width="340" height="180"/>
+  <text class="title" x="380" y="70">动态因果图 NGC</text>
+  <text class="text" x="380" y="100">• MLP + 组套索 → 因果 A[i→j]</text>
+  <text class="text" x="380" y="124">• 道德化 → 无向 M；to_edge_index</text>
+  <text class="text" x="380" y="148">• 滚动窗口构图（window/step）</text>
+
+  <!-- 3a. Predictor (Top branch) -->
+  <rect class="box" x="740" y="20" width="420" height="220"/>
+  <text class="title" x="760" y="50">预测模块 Predictor</text>
+  <text class="text" x="760" y="80">• SAT-FAN：时域z+FFT Top-K → TCN×3 → 注意力×3 → 融合</text>
+  <text class="text" x="760" y="104">• RGAT：用 adj_indices/weights 进行稀疏注意力</text>
+  <text class="text" x="760" y="128">• 融合 Fusion + StyleHead</text>
+  <text class="text" x="760" y="152">• 输出：mu / quantiles / uncertainty / styles / rl_state</text>
+
+  <!-- 3b. Market Model (Bottom branch) -->
+  <rect class="box" x="740" y="260" width="500" height="220"/>
+  <text class="title" x="760" y="290">市场模块 MarketModel</text>
+  <text class="text" x="760" y="320">• Regime(HMM) → regime_probs；MacroProjector → z_macro</text>
+  <text class="text" x="760" y="344">• Probe（z-活跃、rv10）+ MILAN → impact_costs</text>
+  <text class="text" x="760" y="368">• BaselineReturnHead → r_norm；冲击回报 r_impact</text>
+  <text class="text" x="760" y="392">• r_total_pred = r_norm + r_impact（意图敏感）</text>
+
+  <!-- 4. RL (Right) -->
+  <rect class="box" x="1280" y="140" width="280" height="240"/>
+  <text class="title" x="1300" y="170">RL：DQN + XRL</text>
+  <text class="text" x="1300" y="200">• 状态：rl_state ∥ {z_macro, risk, r_norm, r_impact, costs}</text>
+  <text class="text" x="1300" y="224">• 奖励：PnL − impact_costs（impact-aware）</text>
+  <text class="text" x="1300" y="248">• 解释：SHAP Top-K 驱动特征</text>
+  <text class="text" x="1300" y="272">• 动作→交易意图（|Δw|/ADV）</text>
+
+  <!-- Arrows Left→Right -->
+  <path class="arrow" d="M 320 130 L 360 130"/>
+  <text class="step" x="330" y="120">df → NGC</text>
+
+  <path class="arrow" d="M 700 130 L 740 130"/>
+  <text class="step" x="690" y="120">edge_index → RGAT</text>
+
+  <path class="arrow" d="M 320 130 C 520 140, 720 80, 740 90"/>
+  <text class="step" x="560" y="90">df → Predictor</text>
+
+  <path class="arrow" d="M 320 180 C 520 220, 720 320, 740 360"/>
+  <text class="step" x="560" y="300">df → Market</text>
+
+  <!-- Branch outputs to RL -->
+  <path class="arrow" d="M 1160 130 L 1280 200"/>
+  <text class="step" x="1200" y="190">Pred → RL</text>
+
+  <path class="arrow" d="M 1240 370 L 1280 320"/>
+  <text class="step" x="1230" y="340">Market → RL</text>
+
+  <!-- RL → Market intention (feedback) -->
+  <path class="arrow2" d="M 1280 280 C 1160 300, 1060 340, 990 370"/>
+  <text class="step" x="1100" y="310" fill="#10b981">RL → 意图</text>
+
+  <!-- Optional execution/feedback (not detailed here) -->
+  <text class="tiny" x="1240" y="430">注：执行/环境在训练脚本中结算成本与账户</text>
+</svg>
+
