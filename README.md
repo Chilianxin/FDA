@@ -103,6 +103,8 @@ python -m fda.training.train_dl \
 
 ## 模型（预测 × 市场 × 执行 × RL）
 
+![FAD Architecture](assets/fda_architecture.svg)
+
 ### 预测模块（`fda/models`）
 - 股票内：`sat_fan.SATFAN`（自适应时频注意力网络）
   - 特征增强：时域 z-score + FFT 频谱 Top-K 幅值，时频拼接
