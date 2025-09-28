@@ -82,6 +82,10 @@
   <path class="arrow" d="M 200 240 L 200 270"/>
   <text class="step" x="150" y="260">→ Predictor</text>
 
+  <!-- Data to Market -->
+  <path class="arrow" d="M 360 200 C 560 220, 760 260, 820 320"/>
+  <text class="step" x="620" y="230">→ Market</text>
+
   <path class="arrow" d="M 590 200 L 590 270"/>
   <text class="step" x="520" y="260">NGC→RGAT</text>
 
