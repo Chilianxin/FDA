@@ -10,6 +10,7 @@
       .arrow2 { stroke:#10b981; stroke-width:2.5; marker-end:url(#arrowHeadGreen); fill:none; stroke-dasharray:6 6; }
       .arrow3 { stroke:#ef4444; stroke-width:2.5; marker-end:url(#arrowHeadRed); fill:none; stroke-dasharray:4 4; }
       .step { font:700 13px sans-serif; fill:#2563eb; }
+      .subbox { fill:none; stroke:#9ca3af; stroke-width:1.5; rx:8; ry:8; }
     </style>
     <marker id="arrowHeadBlue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
       <polygon points="0 0, 10 5, 0 10" fill="#2563eb"/>
@@ -87,5 +88,59 @@
 
   <!-- Optional execution/feedback (not detailed here) -->
   <text class="tiny" x="1240" y="430">注：执行/环境在训练脚本中结算成本与账户</text>
+
+  <!-- Submodule Outlines (non-occluding) -->
+  <!-- Data submodules -->
+  <rect class="subbox" x="55" y="70" width="120" height="120"/>
+  <text class="tiny" x="65" y="88">Load & Validate</text>
+  <rect class="subbox" x="185" y="70" width="120" height="120"/>
+  <text class="tiny" x="195" y="88">Feature Derivation</text>
+  <text class="tiny" x="195" y="108">r, hl_vol, ADV</text>
+  <text class="tiny" x="195" y="126">Amihud, z-scores</text>
+
+  <!-- NGC submodules -->
+  <rect class="subbox" x="375" y="70" width="150" height="120"/>
+  <text class="tiny" x="385" y="88">NGC Builder</text>
+  <text class="tiny" x="385" y="106">lags→MLP→Group Lasso</text>
+  <rect class="subbox" x="535" y="70" width="150" height="120"/>
+  <text class="tiny" x="545" y="88">Moralize + EdgeIndex</text>
+  <text class="tiny" x="545" y="106">A→M, to_edge_index</text>
+
+  <!-- Predictor submodules -->
+  <rect class="subbox" x="755" y="50" width="195" height="160"/>
+  <text class="tiny" x="765" y="70">SAT-FAN</text>
+  <text class="tiny" x="765" y="88">Enhancer(FFT Top-K)</text>
+  <text class="tiny" x="765" y="106">TCN(short/mid/long)</text>
+  <text class="tiny" x="765" y="124">Temporal Attention×3</text>
+  <text class="tiny" x="765" y="142">Expert Fusion</text>
+  <rect class="subbox" x="960" y="50" width="185" height="90"/>
+  <text class="tiny" x="970" y="70">RGAT</text>
+  <text class="tiny" x="970" y="88">Sparse attention (adj)</text>
+  <rect class="subbox" x="960" y="145" width="185" height="60"/>
+  <text class="tiny" x="970" y="165">Fusion + StyleHead</text>
+
+  <!-- Market submodules -->
+  <rect class="subbox" x="755" y="290" width="225" height="70"/>
+  <text class="tiny" x="765" y="310">Regime(HMM) + MacroProjector</text>
+  <rect class="subbox" x="990" y="290" width="110" height="70"/>
+  <text class="tiny" x="1000" y="310">Probe</text>
+  <text class="tiny" x="1000" y="328">z-activity, rv10</text>
+  <rect class="subbox" x="755" y="365" width="340" height="85"/>
+  <text class="tiny" x="765" y="385">MILAN</text>
+  <text class="tiny" x="765" y="403">Encoder(Transformer)</text>
+  <text class="tiny" x="765" y="421">ImpactPredictionHead</text>
+  <rect class="subbox" x="1105" y="365" width="120" height="85"/>
+  <text class="tiny" x="1115" y="385">BaselineReturnHead</text>
+
+  <!-- RL submodules -->
+  <rect class="subbox" x="1295" y="165" width="250" height="50"/>
+  <text class="tiny" x="1305" y="195">State Assembler (late fusion)</text>
+  <rect class="subbox" x="1295" y="220" width="120" height="60"/>
+  <text class="tiny" x="1305" y="250">DQNAgent</text>
+  <rect class="subbox" x="1425" y="220" width="120" height="60"/>
+  <text class="tiny" x="1435" y="250">ReplayBuffer</text>
+  <rect class="subbox" x="1295" y="285" width="250" height="80"/>
+  <text class="tiny" x="1305" y="313">XRLExplainer(SHAP)</text>
+  <text class="tiny" x="1305" y="331">Action-level attribution</text>
 </svg>
 
