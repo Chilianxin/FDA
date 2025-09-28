@@ -155,6 +155,25 @@ class MacroProjector(nn.Module):
         return self.net(x)
 
 
+class BaselineReturnHead(nn.Module):
+    def __init__(self, stock_dim: int, macro_dim: int, probe_dim: int, hidden: int = 128, return_scale: float = 0.05):
+        super().__init__()
+        self.return_scale = return_scale
+        in_dim = stock_dim + macro_dim + probe_dim
+        self.mlp = nn.Sequential(
+            nn.Linear(in_dim, hidden), nn.GELU(), nn.Linear(hidden, 1)
+        )
+
+    def forward(self, stock_features: torch.Tensor, macro_state_vector: torch.Tensor, impact_potential_vector: torch.Tensor) -> torch.Tensor:
+        # stock_features: [B, N, F_s], macro_state_vector: [B, F_m], impact_potential_vector: [B, N, F_p]
+        B, N, _ = stock_features.shape
+        m = macro_state_vector.unsqueeze(1).expand(B, N, -1)
+        x = torch.cat([stock_features, m, impact_potential_vector], dim=-1)
+        r = self.mlp(x).squeeze(-1)
+        # squash to a reasonable daily return range
+        return torch.tanh(r) * self.return_scale
+
+
 class MarketModel(nn.Module):
     """
     Wrapper to produce RL-ready market state with late fusion fields.
@@ -166,10 +185,12 @@ class MarketModel(nn.Module):
       - impact_costs: [B, N]
     """
 
-    def __init__(self, stock_dim: int, macro_dim: int, probe_dim: int, intent_dim: int, model_dim: int = 128, macro_z_dim: int = 16, layers: int = 2, heads: int = 4, dropout: float = 0.1):
+    def __init__(self, stock_dim: int, macro_dim: int, probe_dim: int, intent_dim: int, model_dim: int = 128, macro_z_dim: int = 16, layers: int = 2, heads: int = 4, dropout: float = 0.1, impact_to_return_scale: float = 1.0, baseline_return_scale: float = 0.05):
         super().__init__()
         self.milan = MILAN(stock_dim, macro_dim, probe_dim, intent_dim, model_dim, layers, heads, dropout)
         self.macro_proj = MacroProjector(macro_dim, out_dim=macro_z_dim)
+        self.baseline = BaselineReturnHead(stock_dim, macro_dim, probe_dim, hidden=model_dim, return_scale=baseline_return_scale)
+        self.impact_to_return_scale = impact_to_return_scale
 
     def forward(
         self,
@@ -180,7 +201,17 @@ class MarketModel(nn.Module):
         regime_probs: torch.Tensor | None = None,
     ) -> dict:
         z_macro = self.macro_proj(macro_state_vector)
-        impact_costs = self.milan(stock_features, macro_state_vector, impact_potential_vector, trading_intention_vector)
+        impact_costs = self.milan(stock_features, macro_state_vector, impact_potential_vector, trading_intention_vector)  # [B, N]
+        # baseline expected (normal) return per asset
+        r_norm = self.baseline(stock_features, macro_state_vector, impact_potential_vector)  # [B, N]
+        # derive direction from intention's first channel if available
+        if trading_intention_vector.dim() == 3 and trading_intention_vector.size(-1) > 0:
+            intent_dir = torch.tanh(trading_intention_vector[..., 0])  # [-1,1]
+        else:
+            intent_dir = torch.zeros_like(impact_costs)
+        # map costs to expected return impact (negative sign for cost)
+        r_impact = - self.impact_to_return_scale * impact_costs * intent_dir
+        r_total = r_norm + r_impact
         # simple aggregates as risk metrics
         rv_mean = impact_potential_vector[..., 1].mean(dim=1)  # [B]
         zvol_mean = impact_potential_vector[..., 0].mean(dim=1)  # [B]
@@ -192,6 +223,9 @@ class MarketModel(nn.Module):
                 'zvol_mean': zvol_mean,
             },
             'impact_costs': impact_costs,
+            'r_norm': r_norm,
+            'r_impact': r_impact,
+            'r_total_pred': r_total,
         }
         return out
 

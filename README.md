@@ -130,6 +130,7 @@ python -m fda.training.train_dl \
   - 流动性探测器：`micro_liquidity_probe` 计算成交活跃异常 Z-score 与短期实现波动率，组成冲击潜力向量
   - 应用：作为 RL 环境的成本感知信号，或与执行 `impact.py/schedule.py` 联动进行成本建模
   - 统一市场接口 `MarketModel`：返回 `{'z_macro','regime_probs','risk_metrics','impact_costs'}`，便于 RL 晚融合接入
+  - 回报分解：`MarketModel` 额外输出 `r_norm`（正常涨跌）、`r_impact`（大额资金冲击增量，按交易意图方向加权）与 `r_total_pred = r_norm + r_impact`
 
 ### 执行与成本（`fda/execution`）
 - 冲击参数网络：`impact.ImpactNet` 输出 `κ, α, β`（范围约束 `α∈[0.6,1.0]`）
