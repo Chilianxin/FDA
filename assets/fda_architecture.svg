@@ -31,14 +31,14 @@
   <text class="tiny" x="60" y="174">输出：面板数据 df（trade_date×ts_code）</text>
 
   <!-- 2. Dynamic Graphs (NGC) -->
-  <rect class="box" x="400" y="40" width="380" height="240"/>
-  <text class="title" x="420" y="70">2) 动态因果图 NGC</text>
-  <text class="text" x="420" y="100">• NGC_Builder：
-    滞后设计矩阵 → MLP → 组套索（按来源股票分组）</text>
-  <text class="text" x="420" y="124">• 有向 A[i→j] → 道德化 → 无向 M</text>
-  <text class="text" x="420" y="148">• to_edge_index(M) → [2,E], weights[E]</text>
-  <text class="text" x="420" y="172">• rolling_dynamic_ngc：滚动窗口/步长生成图字典</text>
-  <text class="tiny" x="420" y="198">输出：{A, M, edge_index, edge_weight, adj_indices, adj_weights, nodes}</text>
+  <rect class="box" x="400" y="40" width="380" height="260"/>
+  <text class="title" x="420" y="70">2) 图与行业映射</text>
+  <text class="text" x="420" y="100">• 融合相似度：相关/尾部共跌落/互相关/流动性与估值/冲击共现</text>
+  <text class="text" x="420" y="124">• 稀疏化与社区：Top-K 稀疏化 + Leiden/Louvain → 伪行业</text>
+  <text class="text" x="420" y="148">• NGC_Builder：滞后设计 → 组套索 MLP → 有向因果 A</text>
+  <text class="text" x="420" y="172">• 道德化：A → 无向 M；to_edge_index(M)→索引与权重</text>
+  <text class="text" x="420" y="196">• rolling_dynamic_ngc：滚动窗口/步长生成动态图字典</text>
+  <text class="tiny" x="420" y="220">输出：伪行业标签、{A,M,edge_index,edge_weight,adj_indices,adj_weights,nodes}</text>
 
   <!-- 3. Predictor -->
   <rect class="box" x="40" y="270" width="740" height="250"/>
@@ -54,7 +54,7 @@
   <text class="title" x="840" y="300">4) 市场模块 MarketModel</text>
   <text class="text" x="840" y="328">• 宏观：MarketRegimeDetector(HMM) → regime_probs；MacroProjector → z_macro</text>
   <text class="text" x="840" y="352">• 微观：micro_liquidity_probe → 交易活跃异常Z + rv10</text>
-  <text class="text" x="840" y="376">• 冲击传播：ImpactPropagationTransformer（特征+宏观+潜力+意图）</text>
+  <text class="text" x="840" y="376">• MILAN（Transformer）：特征+宏观+冲击潜力+意图</text>
   <text class="text" x="840" y="400">• 冲击头：ImpactPredictionHead → impact_costs（每标的预期成本）</text>
   <text class="text" x="840" y="424">• 基线回报：BaselineReturnHead → r_norm；冲击回报：r_impact</text>
   <text class="text" x="840" y="448">• 总回报：r_total_pred = r_norm + r_impact</text>
@@ -68,6 +68,7 @@
   <text class="text" x="60" y="656">• 奖励：impact-aware → reward = PnL − impact_costs（含 cross-impact 可扩展）</text>
   <text class="text" x="60" y="680">• 可解释性：XRLExplainer(SHAP) 对所选动作 Q 值做特征归因（Top-K 驱动）</text>
   <text class="text" x="60" y="704">• 动作→交易意图：intent = sign(Δw) × |Δw|/ADV ×(可含执行视野H)</text>
+  <text class="tiny" x="60" y="728">• 约束（拉格朗日）：伪行业/风格/ADV/换手/CVaR/回撤</text>
 
   <!-- 6. Execution/Env -->
   <rect class="box" x="980" y="610" width="380" height="160"/>
