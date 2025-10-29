@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from .tcn_moe import TCNMoE
+from .sat_fan import SATFAN
 from .rgat import StackedRGAT
 from .fusion import Fusion
 from .style_head import StyleHead
@@ -13,7 +13,7 @@ class Predictor(nn.Module):
     def __init__(self, seq_in_feat: int, cond_dim: int, node_feat_dim: int, hidden: int = 128, num_styles: int = 8):
         super().__init__()
         # intra-stock encoder (sequence)
-        self.intra = TCNMoE(in_feat=seq_in_feat, cond_dim=cond_dim, hidden=hidden)
+        self.intra = SATFAN(in_feat=seq_in_feat, hidden=hidden)
         # inter-stock encoder (graph)
         self.rgat = StackedRGAT(in_dim=node_feat_dim, hid=hidden//4, heads=4, layers=2)
         self.fusion = Fusion(inter_dim=self.rgat.out_dim, intra_dim=hidden, out_dim=hidden)
@@ -32,5 +32,13 @@ class Predictor(nn.Module):
         mu = self.mu(h).squeeze(-1)
         qs = self.q_heads(h)                           # [N, 3]
         u = torch.softplus(self.uncertainty(h)).squeeze(-1)
-        return { 'mu': mu, 'quantiles': qs, 'uncertainty': u, 'styles': E, 'h_inter': h_inter, 'h_intra': h_intra, 'h': h }
+        rl_state = {
+            'alpha_mu': mu,
+            'alpha_q': qs,
+            'alpha_uncertainty': u,
+            'styles': E,
+            'h_intra': h_intra,
+            'h_inter': h_inter,
+        }
+        return { 'mu': mu, 'quantiles': qs, 'uncertainty': u, 'styles': E, 'h_inter': h_inter, 'h_intra': h_intra, 'h': h, 'rl_state': rl_state }
 
