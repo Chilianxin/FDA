@@ -7,28 +7,32 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from .regime import GaussianHMMTeacher, RegimeNet
+
 
 # -------- Regime (HMM) --------
 
 
 class MarketRegimeDetector:
-    def __init__(self, n_components: int = 3, random_state: int = 42):
-        # Delayed import to keep dependency optional at import time
-        from hmmlearn.hmm import GaussianHMM  # type: ignore
+    """
+    Offline HMM teacher that produces pseudo labels for RegimeNet.
+    """
 
-        self.n_components = n_components
-        self.model = GaussianHMM(n_components=n_components, covariance_type='full', random_state=random_state)
+    def __init__(self, n_components: int = 3, random_state: int = 42):
+        self.teacher = GaussianHMMTeacher(n_components=n_components, random_state=random_state)
 
     def train(self, index_returns: np.ndarray) -> None:
-        # index_returns: [T] or [T,1]
-        x = np.asarray(index_returns).reshape(-1, 1).astype(float)
-        self.model.fit(x)
+        self.teacher.fit(index_returns)
 
     def predict_proba(self, latest_returns: np.ndarray) -> np.ndarray:
-        # latest_returns: [T] used for posterior smoothing; returns last-step state probabilities
-        x = np.asarray(latest_returns).reshape(-1, 1).astype(float)
-        logprob, post = self.model.score_samples(x)  # post: [T, K]
-        return post[-1]
+        post = self.teacher.posterior(latest_returns)
+        if post is None:
+            raise RuntimeError("MarketRegimeDetector must be trained before calling predict_proba.")
+        return post.numpy()
+
+    @property
+    def model(self) -> GaussianHMMTeacher:
+        return self.teacher
 
 
 # -------- Micro Liquidity Probe --------
@@ -76,156 +80,211 @@ def micro_liquidity_probe(
     return feat, mask
 
 
-# -------- Impact Propagation Transformer --------
+# -------- Impact Propagation Transformer (Macro-aware) --------
 
 
-class ImpactPropagationTransformer(nn.Module):
-    def __init__(self, stock_dim: int, macro_dim: int, probe_dim: int, intent_dim: int, model_dim: int = 128, num_layers: int = 2, num_heads: int = 4, dropout: float = 0.1):
+class MicroEncoder(nn.Module):
+    def __init__(self, in_dim: int, hidden: int = 64, latent_dim: int = 32, dropout: float = 0.1):
         super().__init__()
-        self.emb_stock = nn.Linear(stock_dim, model_dim)
-        self.emb_macro = nn.Linear(macro_dim, model_dim)
-        self.emb_probe = nn.Linear(probe_dim, model_dim)
-        self.emb_intent = nn.Linear(intent_dim, model_dim)
-        enc_layer = nn.TransformerEncoderLayer(d_model=model_dim, nhead=num_heads, dim_feedforward=model_dim * 4, dropout=dropout, batch_first=True)
-        self.encoder = nn.TransformerEncoder(enc_layer, num_layers=num_layers)
-
-    def forward(
-        self,
-        stock_features: torch.Tensor,
-        macro_state_vector: torch.Tensor,
-        impact_potential_vector: torch.Tensor,
-        trading_intention_vector: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Inputs:
-          - stock_features: [B, N, F_s]
-          - macro_state_vector: [B, F_m] (broadcast per stock)
-          - impact_potential_vector: [B, N, F_p]
-          - trading_intention_vector: [B, N, F_i]
-        Returns:
-          - encoded: [B, N, D]
-        """
-        B, N, _ = stock_features.shape
-        e_s = self.emb_stock(stock_features)
-        e_m = self.emb_macro(macro_state_vector).unsqueeze(1).expand(B, N, -1)
-        e_p = self.emb_probe(impact_potential_vector)
-        e_i = self.emb_intent(trading_intention_vector)
-        x = e_s + e_m + e_p + e_i  # [B, N, D]
-        h = self.encoder(x)
-        return h
-
-
-class ImpactPredictionHead(nn.Module):
-    def __init__(self, model_dim: int = 128):
-        super().__init__()
-        self.mlp = nn.Sequential(
-            nn.Linear(model_dim, model_dim * 2), nn.GELU(), nn.Linear(model_dim * 2, 1)
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, hidden),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden, latent_dim),
         )
-
-    def forward(self, h: torch.Tensor) -> torch.Tensor:
-        # h: [B, N, D] -> costs: [B, N]
-        out = self.mlp(h).squeeze(-1)
-        return out
-
-
-class MILAN(nn.Module):
-    def __init__(self, stock_dim: int, macro_dim: int, probe_dim: int, intent_dim: int, model_dim: int = 128, layers: int = 2, heads: int = 4, dropout: float = 0.1):
-        super().__init__()
-        self.encoder = ImpactPropagationTransformer(stock_dim, macro_dim, probe_dim, intent_dim, model_dim, layers, heads, dropout)
-        self.head = ImpactPredictionHead(model_dim)
-
-    def forward(
-        self,
-        stock_features: torch.Tensor,
-        macro_state_vector: torch.Tensor,
-        impact_potential_vector: torch.Tensor,
-        trading_intention_vector: torch.Tensor,
-    ) -> torch.Tensor:
-        h = self.encoder(stock_features, macro_state_vector, impact_potential_vector, trading_intention_vector)
-        costs = self.head(h)
-        return costs
-
-
-class MacroProjector(nn.Module):
-    def __init__(self, in_dim: int, out_dim: int = 16):
-        super().__init__()
-        self.net = nn.Sequential(nn.Linear(in_dim, max(out_dim, 8)), nn.GELU(), nn.Linear(max(out_dim, 8), out_dim))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
 
 
-class BaselineReturnHead(nn.Module):
-    def __init__(self, stock_dim: int, macro_dim: int, probe_dim: int, hidden: int = 128, return_scale: float = 0.05):
+class ImpactPropagationTransformer(nn.Module):
+    """
+    Macro-aware transformer encoder that performs cross-attention between per-stock features and regime probabilities.
+    """
+
+    def __init__(
+        self,
+        stock_dim: int,
+        macro_dim: int,
+        probe_dim: int,
+        intent_dim: int,
+        model_dim: int = 128,
+        num_layers: int = 2,
+        num_heads: int = 4,
+        dropout: float = 0.1,
+    ):
         super().__init__()
-        self.return_scale = return_scale
-        in_dim = stock_dim + macro_dim + probe_dim
-        self.mlp = nn.Sequential(
-            nn.Linear(in_dim, hidden), nn.GELU(), nn.Linear(hidden, 1)
+        self.stock_proj = nn.Linear(stock_dim + probe_dim + intent_dim, model_dim)
+        self.macro_proj = nn.Linear(macro_dim, model_dim)
+        self.cross_attn = nn.MultiheadAttention(model_dim, num_heads, dropout=dropout, batch_first=True)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=model_dim,
+            nhead=num_heads,
+            dim_feedforward=model_dim * 4,
+            dropout=dropout,
+            batch_first=True,
         )
-
-    def forward(self, stock_features: torch.Tensor, macro_state_vector: torch.Tensor, impact_potential_vector: torch.Tensor) -> torch.Tensor:
-        # stock_features: [B, N, F_s], macro_state_vector: [B, F_m], impact_potential_vector: [B, N, F_p]
-        B, N, _ = stock_features.shape
-        m = macro_state_vector.unsqueeze(1).expand(B, N, -1)
-        x = torch.cat([stock_features, m, impact_potential_vector], dim=-1)
-        r = self.mlp(x).squeeze(-1)
-        # squash to a reasonable daily return range
-        return torch.tanh(r) * self.return_scale
-
-
-class MarketModel(nn.Module):
-    """
-    Wrapper to produce RL-ready market state with late fusion fields.
-
-    forward(...) returns dict with keys:
-      - z_macro: [B, Dz]
-      - regime_probs: [B, K] or None if not provided
-      - risk_metrics: dict with aggregates (e.g., rv_mean, zvol_mean) as [B]
-      - impact_costs: [B, N]
-    """
-
-    def __init__(self, stock_dim: int, macro_dim: int, probe_dim: int, intent_dim: int, model_dim: int = 128, macro_z_dim: int = 16, layers: int = 2, heads: int = 4, dropout: float = 0.1, impact_to_return_scale: float = 1.0, baseline_return_scale: float = 0.05):
-        super().__init__()
-        self.milan = MILAN(stock_dim, macro_dim, probe_dim, intent_dim, model_dim, layers, heads, dropout)
-        self.macro_proj = MacroProjector(macro_dim, out_dim=macro_z_dim)
-        self.baseline = BaselineReturnHead(stock_dim, macro_dim, probe_dim, hidden=model_dim, return_scale=baseline_return_scale)
-        self.impact_to_return_scale = impact_to_return_scale
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.norm = nn.LayerNorm(model_dim)
 
     def forward(
         self,
         stock_features: torch.Tensor,
-        macro_state_vector: torch.Tensor,
+        macro_probs: torch.Tensor,
+        micro_latent: torch.Tensor,
+        trading_intention_vector: torch.Tensor,
+    ) -> torch.Tensor:
+        B, N, _ = stock_features.shape
+        inputs = torch.cat([stock_features, micro_latent, trading_intention_vector], dim=-1)
+        x = self.stock_proj(inputs)
+        macro_token = self.macro_proj(macro_probs).unsqueeze(1)  # [B,1,D]
+        attn_out, _ = self.cross_attn(x, macro_token, macro_token)
+        x = self.norm(x + attn_out)
+        h = self.encoder(x)
+        return h
+
+
+class ImpactPredictionHead(nn.Module):
+    """
+    Produces a multiplicative correction factor γ \in [min_scale, max_scale] for physics-informed costs.
+    """
+
+    def __init__(self, model_dim: int = 128, min_scale: float = 0.5, max_scale: float = 2.5):
+        super().__init__()
+        self.min_scale = min_scale
+        self.max_scale = max_scale
+        self.mlp = nn.Sequential(
+            nn.Linear(model_dim, model_dim),
+            nn.GELU(),
+            nn.Linear(model_dim, 1),
+        )
+
+    def forward(self, h: torch.Tensor) -> torch.Tensor:
+        raw = self.mlp(h)
+        return self.min_scale + (self.max_scale - self.min_scale) * torch.sigmoid(raw)
+
+
+class MILAN(nn.Module):
+    def __init__(
+        self,
+        stock_dim: int,
+        macro_dim: int,
+        probe_dim: int,
+        intent_dim: int,
+        model_dim: int = 128,
+        layers: int = 2,
+        heads: int = 4,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.encoder = ImpactPropagationTransformer(
+            stock_dim=stock_dim,
+            macro_dim=macro_dim,
+            probe_dim=probe_dim,
+            intent_dim=intent_dim,
+            model_dim=model_dim,
+            num_layers=layers,
+            num_heads=heads,
+            dropout=dropout,
+        )
+        self.head = ImpactPredictionHead(model_dim)
+
+    def forward(
+        self,
+        stock_features: torch.Tensor,
+        macro_probs: torch.Tensor,
+        micro_latent: torch.Tensor,
+        trading_intention_vector: torch.Tensor,
+    ) -> torch.Tensor:
+        h = self.encoder(stock_features, macro_probs, micro_latent, trading_intention_vector)
+        gamma = self.head(h)
+        return gamma
+
+
+class MarketModel(nn.Module):
+    """
+    Physics-informed cost module with HMM teacher-student and differentiable macro perception.
+    """
+
+    def __init__(
+        self,
+        stock_dim: int,
+        macro_in_dim: int,
+        probe_dim: int,
+        intent_dim: int,
+        num_regimes: int = 3,
+        model_dim: int = 128,
+        micro_latent_dim: int = 32,
+        layers: int = 2,
+        heads: int = 4,
+        dropout: float = 0.1,
+        kappa: float = 1.0,
+    ):
+        super().__init__()
+        self.regime_student = RegimeNet(macro_in_dim, hidden=model_dim, num_regimes=num_regimes, dropout=dropout)
+        self.micro_encoder = MicroEncoder(probe_dim, hidden=model_dim // 2, latent_dim=micro_latent_dim, dropout=dropout)
+        self.milan = MILAN(
+            stock_dim=stock_dim,
+            macro_dim=num_regimes,
+            probe_dim=micro_latent_dim,
+            intent_dim=intent_dim,
+            model_dim=model_dim,
+            layers=layers,
+            heads=heads,
+            dropout=dropout,
+        )
+        self.kappa = kappa
+        self.eps = 1e-8
+
+    def _physics_base_cost(self, sigma: torch.Tensor, adv: torch.Tensor, intent: torch.Tensor) -> torch.Tensor:
+        sigma = sigma.clamp_min(self.eps)
+        adv = adv.clamp_min(self.eps)
+        intent_abs = intent.abs()
+        return self.kappa * sigma * torch.sqrt(intent_abs / adv)
+
+    def forward(
+        self,
+        stock_features: torch.Tensor,
+        macro_features: torch.Tensor,
         impact_potential_vector: torch.Tensor,
         trading_intention_vector: torch.Tensor,
-        regime_probs: torch.Tensor | None = None,
+        adv: torch.Tensor,
+        realized_vol: torch.Tensor,
+        teacher_probs: torch.Tensor | None = None,
     ) -> dict:
-        z_macro = self.macro_proj(macro_state_vector)
-        impact_costs = self.milan(stock_features, macro_state_vector, impact_potential_vector, trading_intention_vector)  # [B, N]
-        # baseline expected (normal) return per asset
-        r_norm = self.baseline(stock_features, macro_state_vector, impact_potential_vector)  # [B, N]
-        # derive direction from intention's first channel if available
-        if trading_intention_vector.dim() == 3 and trading_intention_vector.size(-1) > 0:
-            intent_dir = torch.tanh(trading_intention_vector[..., 0])  # [-1,1]
-        else:
-            intent_dir = torch.zeros_like(impact_costs)
-        # map costs to expected return impact (negative sign for cost)
-        r_impact = - self.impact_to_return_scale * impact_costs * intent_dir
-        r_total = r_norm + r_impact
-        # simple aggregates as risk metrics
-        rv_mean = impact_potential_vector[..., 1].mean(dim=1)  # [B]
-        zvol_mean = impact_potential_vector[..., 0].mean(dim=1)  # [B]
-        out = {
-            'z_macro': z_macro,
-            'regime_probs': regime_probs,
-            'risk_metrics': {
-                'rv_mean': rv_mean,
-                'zvol_mean': zvol_mean,
-            },
-            'impact_costs': impact_costs,
-            'r_norm': r_norm,
-            'r_impact': r_impact,
-            'r_total_pred': r_total,
+        """
+        Args:
+            stock_features: [B, N, F_s]
+            macro_features: [B, F_macro]
+            impact_potential_vector: [B, N, F_probe]
+            trading_intention_vector: [B, N, F_intent]
+            adv: [B, N]
+            realized_vol: [B, N]
+            teacher_probs: optional teacher regime probabilities for KD
+        """
+        macro_out = self.regime_student(macro_features)
+        z_macro = macro_out['probs']
+        micro_latent = self.micro_encoder(impact_potential_vector)
+        if trading_intention_vector.dim() == 2:
+            trading_intention_vector = trading_intention_vector.unsqueeze(-1)
+        gamma = self.milan(stock_features, z_macro, micro_latent, trading_intention_vector).squeeze(-1)
+        base_cost = self._physics_base_cost(realized_vol, adv, trading_intention_vector.squeeze(-1))
+        impact_costs = base_cost * gamma
+        kd_loss = RegimeNet.kd_loss(macro_out['logits'], teacher_probs) if teacher_probs is not None else macro_out['logits'].sum() * 0.0
+        risk_metrics = {
+            'rv_mean': impact_potential_vector[..., 1].mean(dim=1),
+            'zvol_mean': impact_potential_vector[..., 0].mean(dim=1),
+            'intent_l2': trading_intention_vector.squeeze(-1).pow(2).mean(dim=1),
         }
-        return out
+        return {
+            'z_macro': z_macro,
+            'regime_logits': macro_out['logits'],
+            'regime_kd_loss': kd_loss,
+            'risk_metrics': risk_metrics,
+            'impact_costs': impact_costs,
+            'base_cost': base_cost,
+            'gamma': gamma,
+            'micro_latent': micro_latent,
+            'micro_stats': impact_potential_vector,
+        }
 

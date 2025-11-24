@@ -47,41 +47,53 @@ class FeatureEnhancer(nn.Module):
         return x_enhanced
 
 
-class TemporalConvBlock(nn.Module):
-    def __init__(self, in_ch: int, out_ch: int, kernel_size: int = 3, dilation: int = 1, dropout: float = 0.1):
+class CausalConv1d(nn.Module):
+    def __init__(self, in_ch: int, out_ch: int, kernel_size: int = 3, dilation: int = 2):
         super().__init__()
-        padding = dilation * (kernel_size - 1)
-        self.conv1 = nn.Conv1d(in_ch, out_ch, kernel_size, padding=padding, dilation=dilation)
+        self.pad = dilation * (kernel_size - 1)
+        self.conv = nn.Conv1d(
+            in_ch,
+            out_ch,
+            kernel_size,
+            padding=0,
+            dilation=dilation,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # left-pad only to preserve causality
+        x_pad = nn.functional.pad(x, (self.pad, 0))
+        return self.conv(x_pad)
+
+
+class TemporalConvBlock(nn.Module):
+    def __init__(self, in_ch: int, out_ch: int, kernel_size: int = 3, dilation: int = 2, dropout: float = 0.1):
+        super().__init__()
+        self.conv1 = CausalConv1d(in_ch, out_ch, kernel_size=kernel_size, dilation=dilation)
         self.act1 = nn.GELU()
         self.conv2 = nn.Conv1d(out_ch, out_ch, kernel_size=1)
         self.act2 = nn.GELU()
         self.drop = nn.Dropout(dropout)
-        self.res = nn.Conv1d(in_ch, out_ch, kernel_size=1) if in_ch != out_ch else nn.Identity()
+        self.residual = nn.Conv1d(in_ch, out_ch, kernel_size=1) if in_ch != out_ch else nn.Identity()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: [B, C, T]
         h = self.conv1(x)
         h = self.act1(h)
         h = self.conv2(h)
         h = self.act2(h)
         h = self.drop(h)
-        # match time dimension (simple right-trim to keep causality tendency)
-        if h.size(-1) != x.size(-1):
-            h = h[..., : x.size(-1)]
-        return h + self.res(x)
+        # conv1 uses causal padding so time dimension already matches original input
+        return h + self.residual(x)
 
 
 class TCNStack(nn.Module):
-    def __init__(self, in_ch: int, hid_ch: int, layers: int, kernel_size: int = 3, dropout: float = 0.1):
+    def __init__(self, in_ch: int, hid_ch: int, layers: int, kernel_size: int = 3, dilation: int = 2, dropout: float = 0.1):
         super().__init__()
-        mods = []
+        blocks = []
         c = in_ch
-        dilation = 1
         for _ in range(layers):
-            mods.append(TemporalConvBlock(c, hid_ch, kernel_size=kernel_size, dilation=dilation, dropout=dropout))
+            blocks.append(TemporalConvBlock(c, hid_ch, kernel_size=kernel_size, dilation=dilation, dropout=dropout))
             c = hid_ch
-            dilation *= 2
-        self.net = nn.Sequential(*mods)
+        self.net = nn.Sequential(*blocks)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: [B, C, T]
@@ -136,31 +148,32 @@ class SATFAN(nn.Module):
         fft_topk: int = 8,
         fft_channel_idx: int = 0,
         dropout: float = 0.1,
+        short_layers: int = 2,
+        mid_layers: int = 4,
+        long_layers: int = 6,
     ):
         super().__init__()
         self.enhancer = FeatureEnhancer(fft_topk=fft_topk, fft_channel_idx=fft_channel_idx)
         enhanced_in = in_feat + max(0, fft_topk)
-        # multi-scale TCN experts with different receptive fields
-        self.tcn_short = TCNStack(enhanced_in, hidden, layers=3, kernel_size=3, dropout=dropout)   # ~15 steps
-        self.tcn_mid = TCNStack(enhanced_in, hidden, layers=6, kernel_size=3, dropout=dropout)     # ~127 steps
-        self.tcn_long = TCNStack(enhanced_in, hidden, layers=8, kernel_size=3, dropout=dropout)    # ~511 steps
-        # temporal attention per expert
+        # multi-scale TCN experts with fixed kernel/dilation (k=3, dilation=2) and varying depth
+        self.tcn_short = TCNStack(enhanced_in, hidden, layers=short_layers, kernel_size=3, dilation=2, dropout=dropout)
+        self.tcn_mid = TCNStack(enhanced_in, hidden, layers=mid_layers, kernel_size=3, dilation=2, dropout=dropout)
+        self.tcn_long = TCNStack(enhanced_in, hidden, layers=long_layers, kernel_size=3, dilation=2, dropout=dropout)
         self.attn_short = TemporalAttention(hidden)
         self.attn_mid = TemporalAttention(hidden)
         self.attn_long = TemporalAttention(hidden)
-        # expert fusion attention
         self.fusion = ExpertFusionAttention(hidden_dim=hidden, num_heads=1, use_mha=True)
 
     def forward(self, x_seq: torch.Tensor, cond: torch.Tensor | None = None) -> torch.Tensor:
-        # x_seq: [B, C, T]; cond is unused but kept for interface compatibility
+        # x_seq: [B, C, T]; cond reserved for potential conditioning
         x_enh = self.enhancer(x_seq)
-        h_s = self.tcn_short(x_enh)  # [B, H, T]
+        h_s = self.tcn_short(x_enh)
         h_m = self.tcn_mid(x_enh)
         h_l = self.tcn_long(x_enh)
-        c_s = self.attn_short(h_s)   # [B, H]
+        c_s = self.attn_short(h_s)
         c_m = self.attn_mid(h_m)
         c_l = self.attn_long(h_l)
-        contexts = torch.stack([c_s, c_m, c_l], dim=1)  # [B, 3, H]
-        fused = self.fusion(contexts)  # [B, H]
+        contexts = torch.stack([c_s, c_m, c_l], dim=1)
+        fused = self.fusion(contexts)
         return fused
 
