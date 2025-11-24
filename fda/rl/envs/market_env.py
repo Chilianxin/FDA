@@ -40,18 +40,18 @@ class MarketEnv:
         kappa = self.impact_params['kappa']
         alpha = self.impact_params['alpha']
         beta = self.impact_params['beta']
-        temp = kappa * sigma * (np.abs(q_dollar) / (np.maximum(1e-8, self.adv[self.t]))) ** alpha
+        adv_t = np.maximum(1e-8, self.adv[self.t])
+        temp = kappa * sigma * (np.abs(q_dollar) / adv_t) ** alpha
         perm = beta * np.abs(q_dollar)
         cost = (temp + perm).sum()
         # apply trade
         self.position = target_w
         # next day return
-        r = (self.position * self.returns[self.t]).sum()
-        pnl = r - cost
-        self.cash *= (1.0 + pnl)
+        gross = (self.position * self.returns[self.t]).sum()
+        self.cash *= (1.0 + gross - cost)
         self.t += 1
         done = self.t >= self.T - 1
-        return self._obs(), pnl, done, {'cost': cost}
+        return self._obs(), gross, done, {'cost_proxy': cost}
 
     def _obs(self):
         return {'t': self.t, 'position': self.position.copy(), 'cash': self.cash}

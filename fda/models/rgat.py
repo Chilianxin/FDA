@@ -15,30 +15,39 @@ class SimpleRGATLayer(nn.Module):
         self.a_dst = nn.Parameter(torch.randn(num_heads, out_dim))
         self.dropout = nn.Dropout(dropout)
         self.act = nn.GELU()
+        self.eps = 1e-6
 
     def forward(self, x: torch.Tensor, adj_indices: torch.Tensor, adj_weights: torch.Tensor):
-        # x: [N, D]; adj_indices: [E, 2]; adj_weights: [E]
+        """
+        Args:
+            x: [N, Din]
+            adj_indices: [E, 2] (src, dst)
+            adj_weights: [E] gate strengths derived from NGC adjacency
+        """
         N = x.size(0)
         H = self.num_heads
         D = self.out_dim
-        h = self.W(x).view(N, H, D)  # [N, H, D]
+        if adj_indices.numel() == 0:
+            return x.new_zeros(N, H * D)
+        h = self.W(x).view(N, H, D)
         src = adj_indices[:, 0]
         dst = adj_indices[:, 1]
-        hs = h[src]  # [E, H, D]
+        hs = h[src]
         hd = h[dst]
-        e = (hs * self.a_src).sum(-1) + (hd * self.a_dst).sum(-1)  # [E, H]
-        e = torch.tanh(e) * adj_weights.unsqueeze(-1)
-        # softmax per destination node
-        alpha = torch.zeros_like(e)
-        for i in range(N):
-            mask = (dst == i)
+        raw_scores = (hs * self.a_src).sum(-1) + (hd * self.a_dst).sum(-1)  # [E, H]
+        gate = adj_weights.unsqueeze(-1).clamp_min(self.eps)
+        scores = torch.tanh(raw_scores)
+        scores = scores + torch.log(gate)
+        alpha = torch.zeros_like(scores)
+        for node in range(N):
+            mask = (dst == node)
             if mask.any():
-                logits = e[mask]
+                logits = scores[mask]
                 alpha[mask] = torch.softmax(logits, dim=0)
-        # message passing
-        m = alpha.unsqueeze(-1) * hs  # [E, H, D]
-        out = torch.zeros(N, H, D, device=x.device)
-        out.index_add_(0, dst, m)  # aggregate to dst
+        alpha = alpha * gate
+        messages = alpha.unsqueeze(-1) * hs
+        out = torch.zeros(N, H, D, device=x.device, dtype=messages.dtype)
+        out.index_add_(0, dst, messages)
         out = out.view(N, H * D)
         return self.act(self.dropout(out))
 
